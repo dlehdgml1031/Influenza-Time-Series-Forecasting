@@ -14,7 +14,6 @@ class Dataset_ILI_National(Dataset):
     def __init__(self,
                  data_path:str,
                  seq_len:int,
-                 label_len:int,
                  pred_len:int,
                  scale:bool = True,
                  flag:str = 'train',
@@ -26,7 +25,6 @@ class Dataset_ILI_National(Dataset):
         self.set_type = type_map[flag]
         self.data_path = data_path
         self.seq_len = seq_len
-        self.label_len = label_len
         self.pred_len = pred_len
         self.scale = scale
         self.target = target
@@ -35,6 +33,9 @@ class Dataset_ILI_National(Dataset):
     def __read_data__(self):
         # read csv file
         df_data = pd.read_csv(self.data_path, index_col = [0,1])
+        cols = df_data.columns.tolist()
+        cols.remove(self.target)
+        df_data = df_data[cols + [self.target]]
         
         # train, test, vlidation split (7:2:1)
         num_train = int(len(df_data) * 0.7)
@@ -63,12 +64,13 @@ class Dataset_ILI_National(Dataset):
         s_end = index + self.seq_len
         
         # input token seq index
-        r_begin = s_end - self.label_len
-        r_end = r_begin + self.label_len + self.pred_len
+        r_begin = s_end
+        r_end = r_begin + self.pred_len
         
         # define input seq and target seq
         seq_x = self.data_x[s_begin:s_end]
-        seq_y = self.data_y[r_begin:r_end]
+        seq_y = self.data_y[r_begin:r_end][:, -1] # target is the last column
+        seq_y = seq_y.reshape(-1, 1) # reshape to (pred_len, 1)
         
         # seq_x_mark = self.data_stamp[s_begin:s_end]
         # seq_y_mark = self.data_stamp[r_begin:r_end]
@@ -81,38 +83,28 @@ class Dataset_ILI_National(Dataset):
     
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
-    
-    
-def load_data():
-    pass
 
 
 if __name__ == '__main__':
     # test
     data_path = 'data/national_illness.csv'
     seq_len = 20
-    label_len = 4
-    pred_len = 2
+    pred_len = 3
     scale = False
     target = 'TOTAL PATIENTS'
-    
-    
+        
     dataset = Dataset_ILI_National(
         data_path = data_path,
         seq_len = seq_len,
-        label_len = label_len,
         pred_len = pred_len,
         scale = scale,
         target = target,
     )
     
-    data_loader = DataLoader(dataset, batch_size = 1, shuffle = False)
+    data_loader = DataLoader(dataset, batch_size = 2, shuffle = False)
 
     # Iterate through the data loader
     for batch_x, batch_y in data_loader:
         print(batch_x.shape, batch_y.shape)
         print(batch_x, batch_y)
-        lag = time_series_lag_analysis(batch_x, batch_y)
-        print("#"*20)
-        print(lag)
         break
