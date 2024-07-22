@@ -1,4 +1,4 @@
-from timefeatures import date_to_year_week
+from .timefeatures import date_to_year_week
 
 import os
 import sys
@@ -87,7 +87,7 @@ def calculate_time_series_lag(
     x = feature_df.loc[:, feature_col_name].values
     y = target_df.loc[:, target_col_name].values
     
-    ccf = sm.tsa.stattools.ccf(x, y, nlags = max_lags, unbiased = False)
+    ccf = sm.tsa.stattools.ccf(x, y, nlags = max_lags, adjusted = False)
     optimal_lag = np.argmax(ccf)
     
     return ccf, optimal_lag
