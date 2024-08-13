@@ -22,14 +22,14 @@ def _extract_question_answer(text: str):
 
     return question, answer
 
-def generate_text_summary(
+def generate_text_summarization(
     model_id: str,
     input_querys: List,
     gen_token_len:int = 256,
     chat_template_flag: bool = True,
     quantization_flag: bool = False,
     flash_attention_flag: bool = False,
-):  
+):
     
     # Define the device if cuda is available
     device = "cuda" if torch.cuda.is_available() else "cpu"
