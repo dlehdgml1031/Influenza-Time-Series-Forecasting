@@ -1,8 +1,9 @@
-import re
-
 import os
 import sys
+import re
 from typing import List, Dict, Any, Tuple
+
+import pandas as pd
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, AutoModelForSeq2SeqLM
@@ -22,9 +23,55 @@ def _extract_question_answer(text: str):
 
     return question, answer
 
+def _load_text_data(
+    input_text_flag:str,
+):  
+    assert input_text_flag in ['News', 'Patent', 'Abstract', 'Announcement']
+    
+    if input_text_flag == 'News':
+        text_df = pd.read_csv('./data/Text/News.csv', index_col = 0).set_index('Weekly_Date_Custom')
+
+    elif input_text_flag == 'Patent':
+        text_df = pd.read_csv('./data/Text/Patent.csv', index_col = 0).set_index('Weekly_Date_Custom')
+        text_df.drop_duplicates(['PATENT_ABSTC'], keep = 'first', inplace=True)
+        text_df.sort_index(inplace=True)
+        
+        
+    
+    
+
+def _generate_summarization_prompt(
+    input_text: str,
+    input_text_flag:str,
+):
+    
+    assert input_text_flag in ['News', 'Patent', 'Abstract', 'Announcement']
+    
+    if input_text_flag == 'News':
+        summarization_prompt = """
+        
+        
+        """
+    
+    elif input_text_flag == 'Patent':
+        summarization_prompt = """
+        
+        Please summarize the following noisy but possible news data extracted from
+        web page HTML, and extract keywords of the news. The news text can be very noisy due to it is HTML extraction. Give formatted
+        answer such as Summary: ..., Keywords: ... The news is supposed to be for {symbol} stock. You may put ’N/A’ if the noisy text does
+        not have relevant information to extract.
+        
+        Patent: {input_text}
+        
+        """
+    
+    
+    return summarization_prompt
+
 def generate_text_summarization(
     model_id: str,
-    input_querys: List,
+    input_texts: List,
+    input_text_flag:str,
     gen_token_len:int = 256,
     chat_template_flag: bool = True,
     quantization_flag: bool = False,
@@ -58,13 +105,13 @@ def generate_text_summarization(
     else:
         llm_model.to(device)
     
-    for input_query in input_querys:
-            # Use dialogue template if chat_template_flag is True; otherwise, use input query directly
+    for input_text in input_texts:
+        # Use dialogue template if chat_template_flag is True; otherwise, use input query directly
         if chat_template_flag:
             messages = [
                 {
                     "role" : "user",
-                    "content" : input_query
+                    "content" : input_text
                 }
             ]
             
@@ -76,7 +123,7 @@ def generate_text_summarization(
             
             input_ids = tokenizer(prompt, return_tensors = "pt").to(device)
         else:
-            input_ids = tokenizer(input_query, return_tensors="pt").to(device)
+            input_ids = tokenizer(input_text, return_tensors="pt").to(device)
         
         # Remove token_type_ids
         input_ids.pop("token_type_ids", None)
