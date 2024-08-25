@@ -35,10 +35,12 @@ def _load_text_data(
         text_df = pd.read_csv('./data/Text/Patent.csv', index_col = 0).set_index('Weekly_Date_Custom')
         text_df.drop_duplicates(['PATENT_ABSTC'], keep = 'first', inplace=True)
         text_df.sort_index(inplace=True)
+        text_df = text_df.groupby('Weekly_Date_Custom')['PATENT_ABSTC'].apply(lambda x: ' '.join(x)).reset_index()
+        text_df.set_index('Weekly_Date_Custom', inplace=True)
+        text_df.columns = [input_text_flag]
         
-        
-    
-    
+    return text_df
+   
 
 def _generate_summarization_prompt(
     input_text: str,
@@ -50,27 +52,20 @@ def _generate_summarization_prompt(
     if input_text_flag == 'News':
         summarization_prompt = """
         
-        
         """
     
     elif input_text_flag == 'Patent':
-        summarization_prompt = """
-        
-        Please summarize the following noisy but possible news data extracted from
-        web page HTML, and extract keywords of the news. The news text can be very noisy due to it is HTML extraction. Give formatted
-        answer such as Summary: ..., Keywords: ... The news is supposed to be for {symbol} stock. You may put ’N/A’ if the noisy text does
-        not have relevant information to extract.
+        summarization_prompt = f"""
+        Please summarize the following noisy patent text data. The patent text data can be very noisy because it is stitched together from multiple patents. The patent is supposed to be for Pandemics. Give formatted answer such as Summary: ... . Only a summary is required, and it should be written in sentence-connected form.
         
         Patent: {input_text}
         
         """
     
-    
     return summarization_prompt
 
 def generate_text_summarization(
     model_id: str,
-    input_texts: List,
     input_text_flag:str,
     gen_token_len:int = 256,
     chat_template_flag: bool = True,
@@ -105,45 +100,128 @@ def generate_text_summarization(
     else:
         llm_model.to(device)
     
-    for input_text in input_texts:
-        # Use dialogue template if chat_template_flag is True; otherwise, use input query directly
-        if chat_template_flag:
+    # Load text data
+    text_df = _load_text_data(input_text_flag)
+    input_texts = text_df[input_text_flag].tolist()
+    
+    result_dict = {
+        'Weekly_Date_Custom': text_df.index.to_list(),
+        'Input_text': [],
+        'Summary': [],
+    }
+    
+    # For Llama_3_8B_Instruct model
+    if 'Llama_3_8B_Instruct' in model_id:
+        assert chat_template_flag == True # Check if chat template is enabled
+        
+        for input_text in input_texts:
             messages = [
                 {
+                    "role": "system",
+                    "content": "You are a highly knowledgeable assistant specialized in summarizing information related to infectious diseases. Your role is to provide concise, accurate, and clear summaries of complex texts, focusing on the most critical information about disease characteristics, transmission, symptoms, prevention, and treatment. Ensure that your summaries are accessible to healthcare professionals and informed individuals, maintaining a balance between detail and clarity."
+                },
+                
+                {
                     "role" : "user",
-                    "content" : input_text
+                    "content" : _generate_summarization_prompt(input_text, input_text_flag)
                 }
             ]
             
-            prompt = tokenizer.apply_chat_template(
-                conversation = messages,
-                tokenize = False,
-                add_generation_prompt = True,
+            input_ids = tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                return_tensors = "pt"
+            ).to(device)
+            
+            terminators = [
+                tokenizer.eos_token_id,
+                tokenizer.convert_tokens_to_ids("<|eot_id|>")
+            ]
+            
+            # Generate answer
+            outputs = llm_model.generate(
+                input_ids,
+                max_new_tokens = gen_token_len,
+                eos_token_id = terminators,
+                pad_token_id = tokenizer.eos_token_id,
+                # do_sample = True,
+                # temperature = 0.6,
+                # top_p = 0.9,
             )
             
-            input_ids = tokenizer(prompt, return_tensors = "pt").to(device)
-        else:
-            input_ids = tokenizer(input_text, return_tensors="pt").to(device)
+            response = outputs[0][input_ids.shape[-1]:]
+            final_response = tokenizer.decode(response, skip_special_tokens=True)
+            
+            print(final_response, "\n\n")
+            
+            result_dict['Input_text'].append(input_text)
+            result_dict['Summary'].append(final_response)          
+    
+    # For other models
+    else:
+        for input_text in input_texts:
+            # Use dialogue template if chat_template_flag is True; otherwise, use input query directly
+            if chat_template_flag:
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "You are a highly knowledgeable assistant specialized in summarizing information related to infectious diseases. Your role is to provide concise, accurate, and clear summaries of complex texts, focusing on the most critical information about disease characteristics, transmission, symptoms, prevention, and treatment. Ensure that your summaries are accessible to healthcare professionals and informed individuals, maintaining a balance between detail and clarity."
+                    },
+                    
+                    {
+                        "role" : "user",
+                        "content" : _generate_summarization_prompt(input_text, input_text_flag)
+                    }
+                ]
+                
+                prompt = tokenizer.apply_chat_template(
+                    conversation = messages,
+                    tokenize = False,
+                    add_generation_prompt = True,
+                )
+                
+                input_ids = tokenizer(prompt, return_tensors = "pt").to(device)
+            else:
+                input_ids = tokenizer(_generate_summarization_prompt(input_text, input_text_flag), return_tensors="pt").to(device)
+            
+            # Remove token_type_ids
+            input_ids.pop("token_type_ids", None)
+            
+            # Generate answer
+            outputs = llm_model.generate(
+                **input_ids,
+                eos_token_id = tokenizer.eos_token_id,
+                pad_token_id = tokenizer.eos_token_id,
+                max_new_tokens = gen_token_len, # maximum number of tokens to generate
+            )
+            
+            outputs_decoded = tokenizer.decode(
+                outputs[0],
+                skip_special_tokens = True,
+            )
+            
+            print(outputs_decoded)
         
-        # Remove token_type_ids
-        input_ids.pop("token_type_ids", None)
+    pd.DataFrame(result_dict).to_csv(f"./data/Text/{input_text_flag}_Summarization.csv")
+            
         
-        # Generate answer
-        outputs = llm_model.generate(
-            **input_ids,
-            eos_token_id = tokenizer.eos_token_id,
-            pad_token_id = tokenizer.eos_token_id,
-            max_new_tokens = gen_token_len, # maximum number of tokens to generate
-        )
-        
-        outputs_decoded = tokenizer.decode(
-            outputs[0],
-            skip_special_tokens = True,
-        )
-        
-        # Extract question and answer from the outputs_decoded
-        q, a = _extract_question_answer(outputs_decoded)
-        print(f'Q: {q}')
-        print(f'A: {a}')
-        
-        return a
+if __name__ ==  "__main__":
+    import os
+    os.environ['CUDA_VISIBLE_DEVICES'] = "8"
+    
+    model_dir = "/mnt/nvme01/huggingface/models/"
+    model_id = 'MetaAI/Llama_3_8B_Instruct'
+    input_text_flag = 'Patent'
+    gen_token_len = 512
+    chat_template_flag = True
+    quantization_flag = False
+    flash_attention_flag = False
+    
+    generate_text_summarization(
+        model_id = model_dir + model_id,
+        input_text_flag = input_text_flag,
+        gen_token_len = gen_token_len,
+        chat_template_flag = chat_template_flag,
+        quantization_flag = quantization_flag,
+        flash_attention_flag = flash_attention_flag
+    )
