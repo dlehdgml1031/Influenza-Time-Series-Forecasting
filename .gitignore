@@ -6,6 +6,19 @@ __pycache__/
 # C extensions
 *.so
 
+# csv / excel files
+*.csv
+*.xls
+*.xlsx
+
+# Huggingface BERT Model
+config.json
+generation_config.json
+model.safetensors
+special_tokens_map.json
+tokenizer_config.json
+vocab.txt
+
 # Distribution / packaging
 .Python
 build/
