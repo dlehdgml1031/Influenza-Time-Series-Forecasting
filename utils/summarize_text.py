@@ -28,17 +28,10 @@ def _load_text_data(
 ):  
     assert input_text_flag in ['News', 'Patent', 'Abstract', 'Announcement']
     
-    if input_text_flag == 'News':
-        text_df = pd.read_csv('./data/Text/News.csv', index_col = 0).set_index('Weekly_Date_Custom')
-
-    elif input_text_flag == 'Patent':
-        text_df = pd.read_csv('./data/Text/Patent.csv', index_col = 0).set_index('Weekly_Date_Custom')
-        text_df.drop_duplicates(['PATENT_ABSTC'], keep = 'first', inplace=True)
-        text_df.sort_index(inplace=True)
-        text_df = text_df.groupby('Weekly_Date_Custom')['PATENT_ABSTC'].apply(lambda x: ' '.join(x)).reset_index()
-        text_df.set_index('Weekly_Date_Custom', inplace=True)
-        text_df.columns = [input_text_flag]
-        
+    text_df = pd.read_csv(f'./data/Text_Input/{input_text_flag.lower()}_for_input.csv', index_col = 0).set_index('Weekly_Date_Custom')
+    text_df.columns = [input_text_flag]
+    text_df.fillna('N/A', inplace = True)
+    
     return text_df
    
 
@@ -50,15 +43,36 @@ def _generate_summarization_prompt(
     assert input_text_flag in ['News', 'Patent', 'Abstract', 'Announcement']
     
     if input_text_flag == 'News':
-        summarization_prompt = """
+        if len(input_text) > 20_000:
+            input_text = input_text[:20_000]
+        
+        summarization_prompt = f"""
+        Please summarize the following noisy news title data. The news title text data can be very noisy because it is stitched together from multiple news title. 
+        The news title is supposed to be for Pandemics. Only a summary is required, and it must be written in a sentence-connected format, not necessarily using bullet points. Give formatted answer such as Summary: ... .
+        If there is no relevant information that can be summarized from the text, you can enter 'N/A'.
+        
+        News Title: {input_text}
         
         """
     
     elif input_text_flag == 'Patent':
         summarization_prompt = f"""
-        Please summarize the following noisy patent text data. The patent text data can be very noisy because it is stitched together from multiple patents. The patent is supposed to be for Pandemics. Give formatted answer such as Summary: ... . Only a summary is required, and it should be written in sentence-connected form.
+        Please summarize the following noisy patent text data. The patent text data can be very noisy because it is stitched together from multiple patents. 
+        The patent is supposed to be for Pandemics. Only a summary is required, and it must be written in a sentence-connected format, not necessarily using bullet points. Give formatted answer such as Summary: ... .
+        If there is no relevant information that can be summarized from the text, you can enter 'N/A'.
         
         Patent: {input_text}
+        
+        """
+        
+    elif input_text_flag == 'Abstract':
+        summarization_prompt = f"""
+        Please summarize the following noisy paper abstract text data. The paper abstract text data can be very noisy because it is stitched together from multiple paper abstract. 
+        The paper abstract is supposed to be for Pandemics. Only a summary is required, and it must be written in a sentence-connected format, not using bullet points. Give formatted answer such as Summary: ... .
+        If there is no relevant information that can be summarized from the text, you can enter 'N/A'.
+        
+        Paper Abstract: {input_text}
+        
         
         """
     
@@ -129,8 +143,8 @@ def generate_text_summarization(
             
             input_ids = tokenizer.apply_chat_template(
                 messages,
-                add_generation_prompt=True,
-                return_tensors = "pt"
+                add_generation_prompt = True,
+                return_tensors = "pt",
             ).to(device)
             
             terminators = [
@@ -155,7 +169,7 @@ def generate_text_summarization(
             print(final_response, "\n\n")
             
             result_dict['Input_text'].append(input_text)
-            result_dict['Summary'].append(final_response)          
+            result_dict['Summary'].append(final_response)
     
     # For other models
     else:
@@ -182,7 +196,7 @@ def generate_text_summarization(
                 
                 input_ids = tokenizer(prompt, return_tensors = "pt").to(device)
             else:
-                input_ids = tokenizer(_generate_summarization_prompt(input_text, input_text_flag), return_tensors="pt").to(device)
+                input_ids = tokenizer(_generate_summarization_prompt(input_text, input_text_flag), return_tensors = "pt").to(device)
             
             # Remove token_type_ids
             input_ids.pop("token_type_ids", None)
@@ -202,8 +216,8 @@ def generate_text_summarization(
             
             print(outputs_decoded)
         
-    pd.DataFrame(result_dict).to_csv(f"./data/Text/{input_text_flag}_Summarization.csv")
-            
+    pd.DataFrame(result_dict).to_csv(f"./data/Text_Summarization/{input_text_flag.lower()}_summarization.csv")
+    
         
 if __name__ ==  "__main__":
     import os
@@ -211,7 +225,7 @@ if __name__ ==  "__main__":
     
     model_dir = "/mnt/nvme01/huggingface/models/"
     model_id = 'MetaAI/Llama_3_8B_Instruct'
-    input_text_flag = 'Patent'
+    input_text_flag = 'News'
     gen_token_len = 512
     chat_template_flag = True
     quantization_flag = False
