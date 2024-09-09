@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
 from data_loader import Dataset_ILI_National, NaiveILINationalDataset
@@ -14,7 +15,18 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+# Set random seed
+def seed_everything(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
 
 class ILILSTM(nn.Module):
     def __init__(self, pred_type:str, input_dim:int, hidden_dim:int, num_layers:int,
@@ -36,7 +48,7 @@ class ILILSTM(nn.Module):
             batch_first = lstm_batch_first
         )
         
-        self.fc_forecast = nn.Linear(hidden_dim, 2)
+        self.fc_forecast = nn.Linear(hidden_dim, 1)
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, x: torch.Tensor):
@@ -52,7 +64,7 @@ class ILILSTM(nn.Module):
         # Fully connected layer
         output = self.fc_forecast(lstm_out_last)
         
-        # Apply activation (Sigmoid for binary, Softmax for multi-class)
+        # Apply Sigmoid activation function
         output = self.sigmoid(output)
         
         return output
@@ -64,27 +76,26 @@ def train_model(pred_type:str, seq_len:int, train_flag:str, batch_size:int, num_
     dataset = NaiveILINationalDataset(pred_type = pred_type, seq_len = seq_len, train_flag = train_flag)
     dataloader = DataLoader(dataset, batch_size = batch_size, shuffle = False)
 
-
     model = ILILSTM(pred_type = pred_type, input_dim = ili_input_size, hidden_dim = hidden_dim, num_layers = num_layers)
     model.to(device)
     
     optimizer = torch.optim.Adam(model.parameters(), lr = learning_rate)
-    
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCELoss()
     
     for epoch in range(num_epochs):
         model.train()
         
         for batch_idx, batch in enumerate(dataloader):
+            optimizer.zero_grad()
+            
             seq, labels = batch
             seq = seq.to(device)
             seq = seq.unsqueeze(-1)
             labels = labels.to(device)
-            labels = labels.squeeze(dim=1)
             
-            optimizer.zero_grad()
             output = model(seq)
             loss = criterion(output, labels)
+            
             loss.backward()
             optimizer.step()
             
@@ -94,42 +105,53 @@ def train_model(pred_type:str, seq_len:int, train_flag:str, batch_size:int, num_
     
     return model
 
-def evaluate_model(model, dataloader):
-    model.eval()
-    criterion = nn.CrossEntropyLoss()
-    
+def evaluate_model(model: nn.Module, pred_type: str, seq_len: int, batch_size: int,
+                   ili_input_size: int = 1):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    total_loss = 0.0
-    correct = 0
-    total = 0
-    
-    for batch_idx, batch in enumerate(dataloader):
-        seq, labels = batch
-        seq = seq.to(device)
-        seq = seq.unsqueeze(-1)
-        labels = labels.to(device)
-        labels = labels.squeeze(dim=1)
-        
-        output = model(seq)
-        loss = criterion(output, labels)
-        
-        total_loss += loss.item()
-    
-        # 예측값과 실제 레이블 비교
-        _, predicted = torch.max(output, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
 
-    avg_loss = total_loss / len(dataloader)
-    accuracy = 100 * correct / total
+    # Load the dataset (Assuming test_flag or a similar flag to indicate evaluation data)
+    dataset = NaiveILINationalDataset(pred_type = pred_type, seq_len = seq_len, train_flag = 'test')
+    dataloader = DataLoader(dataset, batch_size = batch_size, shuffle = False)
 
-    print(f'Test Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%')
+    model.to(device)
+    model.eval()  # Set model to evaluation mode
+    
+    all_labels = []
+    all_preds = []
 
+    with torch.no_grad():  # Disable gradient calculations for evaluation
+        for batch_idx, batch in enumerate(dataloader):
+            seq, labels = batch
+            seq = seq.to(device)
+            seq = seq.unsqueeze(-1)
+            labels = labels.to(device)
+            
+            output = model(seq)
+            
+            # Binarize the output with a threshold (e.g., 0.5)
+            preds = (output >= 0.5).float()
+            
+            # Collect all true labels and predictions for evaluation
+            all_labels.append(labels.cpu())
+            all_preds.append(preds.cpu())
+
+    # Concatenate all batches for evaluation
+    all_labels = torch.cat(all_labels).numpy()
+    all_preds = torch.cat(all_preds).numpy()
+
+    # Calculate evaluation metrics
+    accuracy = accuracy_score(all_labels, all_preds)
+    precision = precision_score(all_labels, all_preds)
+    recall = recall_score(all_labels, all_preds)
+    f1 = f1_score(all_labels, all_preds)
     
-    
-    
-    
+    print(f'Accuracy: {accuracy:.4f}')
+    print(f'Precision: {precision:.4f}')
+    print(f'Recall: {recall:.4f}')
+    print(f'F1 Score: {f1:.4f}')
+
+    return accuracy, precision, recall, f1
+
         
 
 # define LSTM model
@@ -250,21 +272,47 @@ if __name__ == '__main__':
     import os
     os.environ['CUDA_VISIBLE_DEVICES'] = "8"
     
-    # Training model
-    model = train_model(
-        pred_type = 'cls',
-        seq_len = 100,
-        train_flag = 'train',
-        batch_size = 32,
-        num_epochs = 100,
-        learning_rate = 1e-3,
-        num_layers = 1,
-        hidden_dim = 512
-    )
+    pred_type = 'cls'
+    seq_len = 50
+    batch_size = 16
+    num_epochs = 50
+    learning_rate = 1e-3
+    num_layers = 1
+    hidden_dim = 512
     
-    # Load test data
-    test_dataset = NaiveILINationalDataset(pred_type='cls', seq_len = 5, train_flag='test')
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    total_res_dict = {
+        'accuracy': [],
+        'precision': [],
+        'recall': [],
+        'f1': []
+    }
     
-    # Evaluate the model on test data
-    evaluate_model(model, test_dataloader)
+    for seed in range(5):
+        seed_everything(seed)
+    
+        # Training model
+        model = train_model(
+            pred_type = pred_type,
+            seq_len = seq_len,
+            train_flag = 'train',
+            batch_size = batch_size,
+            num_epochs = num_epochs,
+            learning_rate = learning_rate,
+            num_layers = num_layers,
+            hidden_dim = hidden_dim
+        )
+        
+        # Evaluate the model on test data
+        acc, pre, recall, f1 = evaluate_model(model = model, pred_type = pred_type, seq_len = seq_len, batch_size = batch_size)
+        
+        total_res_dict['accuracy'].append(acc)
+        total_res_dict['precision'].append(pre)
+        total_res_dict['recall'].append(recall)
+        total_res_dict['f1'].append(f1)
+    
+    total_res_dict['accuracy'] = np.mean(total_res_dict['accuracy'])
+    total_res_dict['precision'] = np.mean(total_res_dict['precision'])
+    total_res_dict['recall'] = np.mean(total_res_dict['recall'])
+    total_res_dict['f1'] = np.mean(total_res_dict['f1'])
+    
+    print(total_res_dict)
