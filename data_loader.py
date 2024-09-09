@@ -62,7 +62,7 @@ class NaiveILINationalDataset(Dataset):
         r_end = r_begin + self.pred_len
         
         total_patients = torch.tensor(self.total_patients[s_begin:s_end], dtype = torch.float32)
-        label = torch.tensor(self.labels[r_begin:r_end], dtype = torch.long)
+        label = torch.tensor(self.labels[r_begin:r_end], dtype = torch.float32)
         
         return total_patients, label
         
@@ -76,9 +76,13 @@ class FluCastDataset(Dataset):
                  abstract_texts_path:str = './data/Text_Summarization/abstract_summarization.csv',
                  patent_texts_path:str = './data/Text_Summarization/patent_summarization.csv',
                  ili_path:str = './data/ILI/national_illness_2018.csv',
+                #  news_bert_model_id:str = "/mnt/nvme01/huggingface/models/Google/bert-base-uncased",
+                #  abstract_bert_model_id:str = "/mnt/nvme01/huggingface/models/Google/bert-base-uncased",
+                #  patent_bert_model_id:str = "/mnt/nvme01/huggingface/models/Google/bert-base-uncased",
                  news_bert_model_id:str = './pretrained_bert/News',
                  abstract_bert_model_id:str = './pretrained_bert/Abstract',
-                 patent_bert_model_id:str = './pretrained_bert/Patent'):
+                 patent_bert_model_id:str = './pretrained_bert/Patent'
+            ):
         type_map = {'train': 0, 'test': 1}
         self.pred_type = pred_type
         self.seq_len = seq_len
@@ -107,26 +111,34 @@ class FluCastDataset(Dataset):
         self.patent_embeddings = self._get_embeddings(patent_texts, self.patent_bert_model_id)
         
         self.total_patients = pd.read_csv(self.ili_path, index_col = [0, 1])['TOTAL PATIENTS'].to_list()
-        labels = pd.read_csv(self.ili_path, index_col = [0, 1])['Label'].to_list()
-        self.labels = [1 if label == 'UP' else 0 for label in labels]
-        
-        assert len(self.news_embeddings) == len(self.abstract_embeddings) == len(self.patent_embeddings) == len(self.labels) == len(self.total_patients)
-        
-        if self.scale:
-            pass
         
         # train, test split (7:3)
-        num_train = int(len(self.labels) * 0.7)
-        num_test = int(len(self.labels) * 0.3)
+        num_train = int(len(self.total_patients) * 0.7)
+        num_test = int(len(self.total_patients) * 0.3)
         
         # border1s = [0, len(self.labels) - num_test - self.seq_len]
         # border2s = [num_train, len(self.labels)]
-        
-        border1s = [0, len(self.labels) - num_test - self.seq_len - self.pred_len]
-        border2s = [num_train + self.pred_len, len(self.labels)]
-        
+        border1s = [0, len(self.total_patients) - num_test - self.seq_len - self.pred_len]
+        border2s = [num_train + self.pred_len, len(self.total_patients)]
         border1 = border1s[self.set_type]
         border2 = border2s[self.set_type]
+        
+        if self.scale:
+            self.scaler = StandardScaler()
+            self.total_patients = np.array(self.total_patients).reshape(-1, 1)
+            self.scaler.fit(self.total_patients[border1s[0]:border2s[0]])
+            self.total_patients = self.scaler.transform(self.total_patients)
+            
+            print(self.total_patients)
+        
+        if self.pred_type == 'cls':
+            labels = pd.read_csv(self.ili_path, index_col = [0, 1])['Label'].to_list()
+            self.labels = [1 if label == 'UP' else 0 for label in labels]
+            
+        elif self.pred_type == 'pred':
+            self.labels = pd.read_csv(self.ili_path, index_col = [0, 1])['TOTAL PATIENTS'].to_list()
+        
+        assert len(self.news_embeddings) == len(self.abstract_embeddings) == len(self.patent_embeddings) == len(self.labels) == len(self.total_patients)
         
         self.news_embeddings = self.news_embeddings[border1:border2]
         self.abstract_embeddings = self.abstract_embeddings[border1:border2]
@@ -148,10 +160,15 @@ class FluCastDataset(Dataset):
         abstract_embeddings = torch.tensor(self.abstract_embeddings[s_begin:s_end], dtype = torch.float32)
         patent_embeddings = torch.tensor(self.patent_embeddings[s_begin:s_end], dtype = torch.float32)
         total_patients = torch.tensor(self.total_patients[s_begin:s_end], dtype = torch.float32)
-        label = torch.tensor(self.labels[r_begin:r_end], dtype = torch.long)
+        
+        if self.pred_type == 'cls':
+            label = torch.tensor(self.labels[r_begin:r_end], dtype = torch.float32)
+        
+        elif self.pred_type == 'pred':
+            label = torch.tensor(self.labels[r_begin:r_end], dtype = torch.float32)
         
         return news_embeddings, abstract_embeddings, patent_embeddings, total_patients, label
-    
+        
     def _get_embeddings(self, texts:List, bert_model_id:str):
         embeddings = []
         
@@ -344,3 +361,7 @@ class Dataset_ILI_National(Dataset):
     
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
+    
+    
+if __name__ == '__main__':
+    dataset = FluCastDataset(pred_type='cls', seq_len = 10, train_flag='train', scale=True)
