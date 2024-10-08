@@ -28,7 +28,7 @@ def _load_text_data(
 ):  
     assert input_text_flag in ['News', 'Patent', 'Abstract', 'Announcement']
     
-    text_df = pd.read_csv(f'./data/Text_Input/{input_text_flag.lower()}_for_input.csv', index_col = 0).set_index('Weekly_Date_Custom')
+    text_df = pd.read_csv(f'./data/Text_Input_New/{input_text_flag.lower()}_for_input.csv', index_col = 0).set_index('Weekly_Date_Custom')
     text_df.columns = [input_text_flag]
     text_df.fillna('N/A', inplace = True)
     
@@ -40,27 +40,36 @@ def _generate_summarization_prompt(
     input_text_flag:str,
 ):
     
-    assert input_text_flag in ['News', 'Patent', 'Abstract', 'Announcement']
+    assert input_text_flag in ['News', 'Patent', 'Abstract']
     
     if input_text_flag == 'News':
         if len(input_text) > 20_000:
             input_text = input_text[:20_000]
-        
+            
         summarization_prompt = f"""
-        Please summarize the following noisy news title data. The news title text data can be very noisy because it is stitched together from multiple news title. 
-        The news title is supposed to be for Pandemics. Only a summary is required, and it must be written in a sentence-connected format, not necessarily using bullet points. Give formatted answer such as Summary: ... .
-        If there is no relevant information that can be summarized from the text, you can enter 'N/A'.
-        
+        [Instructions]
+        Please summarize the following noisy news title data. The data may contain multiple stitched news titles, and it's focused on infectious diseases. The summary should be concise, logically connected, start with 'Summary:', and written in a single paragraph of cohesive, continuous sentences. Avoid using bullet points or listing information separately. Instead, ensure that the summary reads as a fluid, connected narrative.
+
+        Summarize the content using the format in the [Example Format]. If no relevant information is available for summarization, return 'N/A'.
+
+        [Example Answer Format]
+        Summary: sentence 1. sentence 2. sentence 3 ... sentence N.
+
+        [Input News Title]
         News Title: {input_text}
-        
         """
-    
+
+
     elif input_text_flag == 'Patent':
         summarization_prompt = f"""
-        Please summarize the following noisy patent text data. The patent text data can be very noisy because it is stitched together from multiple patents. 
-        The patent is supposed to be for Pandemics. Only a summary is required, and it must be written in a sentence-connected format, not necessarily using bullet points. Give formatted answer such as Summary: ... .
+        Please summarize the following noisy patent text data. The patent text data can be very noisy because it is stitched together from multiple patents. The patent is supposed to be for Infectious diseases. 
+        Summarize the answer in a single paragraph, ensuring that each sentence is logically connected. Only a summary is required, Give formatted answer such as Summary: ... .
         If there is no relevant information that can be summarized from the text, you can enter 'N/A'.
         
+        [Example Format]
+        Summary: sentence 1. sentence 2. sentence 3 ... .
+        
+        [Input]
         Patent: {input_text}
         
         """
@@ -68,7 +77,7 @@ def _generate_summarization_prompt(
     elif input_text_flag == 'Abstract':
         summarization_prompt = f"""
         Please summarize the following noisy paper abstract text data. The paper abstract text data can be very noisy because it is stitched together from multiple paper abstract. 
-        The paper abstract is supposed to be for Pandemics. Only a summary is required, and it must be written in a sentence-connected format, not using bullet points. Give formatted answer such as Summary: ... .
+        Summarize the answer in a single paragraph, ensuring that each sentence is logically connected. Only a summary is required, Give formatted answer such as Summary: ... .
         If there is no relevant information that can be summarized from the text, you can enter 'N/A'.
         
         Paper Abstract: {input_text}
@@ -132,7 +141,7 @@ def generate_text_summarization(
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a highly knowledgeable assistant specialized in summarizing information related to infectious diseases. Your role is to provide concise, accurate, and clear summaries of complex texts, focusing on the most critical information about disease characteristics, transmission, symptoms, prevention, and treatment. Ensure that your summaries are accessible to healthcare professionals and informed individuals, maintaining a balance between detail and clarity."
+                    "content": "You are an expert assistant specializing in summarizing information on infectious diseases. Your role is to provide concise and accurate summaries of news and complex texts, focusing on key details such as disease characteristics, transmission, symptoms, prevention, and treatment. Ensure your summaries are clear and useful for healthcare professionals and informed readers."
                 },
                 
                 {
@@ -216,7 +225,7 @@ def generate_text_summarization(
             
             print(outputs_decoded)
         
-    pd.DataFrame(result_dict).to_csv(f"./data/Text_Summarization/{input_text_flag.lower()}_summarization.csv")
+    pd.DataFrame(result_dict).to_csv(f"./data/Text_Summarization_New/{input_text_flag.lower()}_summarization.csv")
     
         
 if __name__ ==  "__main__":

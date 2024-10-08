@@ -38,7 +38,7 @@ class ILILSTM(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         
-        if pred_type == 'fs':
+        if pred_type == 'pred':
             self.pred_len = pred_len
         
         self.lstm_ILI = nn.LSTM(
